@@ -2,7 +2,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Distributor Map with Auto-Fit</title>
+  <title>Distributor Map</title>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
@@ -23,7 +23,6 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap'
 }).addTo(map);
 
-// Create a layer group to hold markers
 var markers = L.featureGroup();
 
 fetch('https://opensheet.elk.sh/1wVrLOTzs88gLpbnFrY0SCwPdSArXYouV4HW85jRK5fg/Sheet1')
@@ -43,7 +42,6 @@ fetch('https://opensheet.elk.sh/1wVrLOTzs88gLpbnFrY0SCwPdSArXYouV4HW85jRK5fg/She
       }
     });
 
-    // Add markers to map and fit bounds
     if (markers.getLayers().length > 0) {
       markers.addTo(map);
       map.fitBounds(markers.getBounds(), { padding: [50, 50] });
