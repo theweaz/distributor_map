@@ -1,0 +1,180 @@
+
+<!DOCTYPE html>
+
+<html>
+<head>
+<title>Distributor Map with Tier Colors</title>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<link href="https://unpkg.com/leaflet/dist/leaflet.css" rel="stylesheet"/>
+<style>
+    #map { height: 100vh; width: 100%; }
+    #side-panel {
+      width: 350px;
+      background: white;
+      box-shadow: -2px 0 10px rgba(0,0,0,0.2);
+      position: fixed;
+      right: 0;
+      top: 0;
+      height: 100%;
+      z-index: 1000;
+      padding: 20px;
+      overflow-y: auto;
+      display: none;
+    }
+    #close-panel {
+      position: absolute;
+      top: 10px;
+      right: 15px;
+      font-size: 20px;
+      background: none;
+      border: none;
+      cursor: pointer;
+    }
+    .dist-name {
+      color: #1a73e8;
+      font-size: 1.5em;
+      margin-bottom: 0;
+    }
+    .capability-tags li {
+      background-color: #f0f0f0;
+      display: inline-block;
+      margin: 4px 6px 4px 0;
+      padding: 4px 8px;
+      border-radius: 12px;
+      font-size: 0.85em;
+    }
+    .tier-badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 0.85em;
+      font-weight: 600;
+      margin-top: 10px;
+    }
+    .tier-top { background-color: #007bff; color: white; }
+    .tier-mid { background-color: #FFA500; color: white; }
+    .tier-entry { background-color: #6c757d; color: white; }
+    .tier-var { background-color: #28a745; color: white; }
+  
+.tier-skb { background-color: #dc3545; color: white; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="side-panel">
+<button id="close-panel" onclick="document.getElementById('side-panel').style.display='none';">×</button>
+<div id="panel-content"></div>
+</div>
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+<script>
+  const defaultIcon = L.icon({
+    iconUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png',
+    iconSize: [25, 41],
+    iconAnchor: [12, 41],
+    popupAnchor: [1, -34],
+    shadowUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-shadow.png',
+    shadowSize: [41, 41]
+  });
+
+  const largeIcon = L.icon({
+    iconUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png',
+    iconSize: [35, 55],
+    iconAnchor: [17, 55],
+    popupAnchor: [1, -34],
+    shadowUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-shadow.png',
+    shadowSize: [55, 55]
+  });
+</script>
+<script>
+    function showSidePanel(dist) {
+      const panel = document.getElementById('side-panel');
+      const content = document.getElementById('panel-content');
+      const capabilitiesArray = dist.Capabilities ? dist.Capabilities.split(',') : [];
+      const capabilities = capabilitiesArray.map(cap => '<li>' + cap.trim() + '</li>').join('');
+
+      let tier = dist.Tier || '';
+  if (/top/i.test(tier)) tier = 'Base';
+  else if (/mid/i.test(tier)) tier = 'Dealer';
+  else if (/entry/i.test(tier)) tier = 'Distributor';
+  else if (/var/i.test(tier)) tier = 'DR';
+
+      let tierClass = '';
+  if (/skb/i.test(tier)) tierClass = 'tier-skb';
+
+      if (/top/i.test(tier)) tierClass = 'tier-top';
+      else if (/mid/i.test(tier)) tierClass = 'tier-mid';
+      else if (/entry/i.test(tier)) tierClass = 'tier-entry';
+      else if (/var/i.test(tier)) tierClass = 'tier-var';
+
+      content.innerHTML = `
+        <h2 class="dist-name">${dist.Name}</h2>
+        <p class="location">${dist.Address}</p>
+        <p><strong>Main Contact:</strong> ${dist['Main Contact'] || ''}</p>
+        <p><strong>Email:</strong> <a href="mailto:${dist.Email || ''}">${dist.Email || ''}</a></p>
+        <p><strong>Phone:</strong> ${dist.Phone || ''}</p>
+        <div class="capability-section">
+          <h3>Capabilities</h3>
+          <ul class="capability-tags">${capabilities}</ul>
+        </div>
+        <div class="tier-badge ${tierClass}">${tier}</div>
+      `;
+      panel.style.display = 'block';
+    }
+
+    var map = L.map('map').setView([39.8283, -98.5795], 4);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '© OpenStreetMap'
+    }).addTo(map);
+
+    var markers = L.featureGroup();
+
+    fetch('https://opensheet.elk.sh/1wVrLOTzs88gLpbnFrY0SCwPdSArXYouV4HW85jRK5fg/Sheet1')
+      .then(response => response.json())
+      .then(data => {
+        data.forEach((dist, index) => {
+          const lat = parseFloat(dist.Latitude);
+          const lng = parseFloat(dist.Longitude);
+          if (!isNaN(lat) && !isNaN(lng)) {
+            
+            const tierCheck = (dist.Tier || '').toLowerCase();
+            const useLarge = tierCheck.includes('skb') || tierCheck.includes('var');
+            const marker = L.marker([lat, lng], { icon: useLarge ? largeIcon : defaultIcon }).on('click', function() {
+            
+              showSidePanel(dist);
+            });
+            markers.addLayer(marker);
+          }
+        });
+        if (markers.getLayers().length > 0) {
+          markers.addTo(map);
+          map.fitBounds(markers.getBounds(), { padding: [50, 50] });
+        }
+      })
+      .catch(err => {
+        console.error("Failed to load data from Google Sheet:", err);
+      });
+  </script>
+<div id="tier-legend" style="
+  position: fixed;
+  bottom: 20px;
+  left: 20px;
+  background: white;
+  border: 1px solid #ccc;
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 0.9em;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+  z-index: 999;
+">
+<strong>Tier Key</strong><br/>
+<div><span style="background:#007bff; color:white; padding:3px 8px; border-radius:12px;">Base</span> - Base Level Pricing</div>
+<div><span style="background:#FFA500; color:white; padding:3px 8px; border-radius:12px;">Dealer</span> - Dealer Level Pricing</div>
+<div><span style="background:#6c757d; color:white; padding:3px 8px; border-radius:12px;">Distributor</span> - Distributor Level Pricing</div>
+<div><span style="background:#28a745; color:white; padding:3px 8px; border-radius:12px;">DR</span> - Direct Reseller</div>
+<div><span style="background:#dc3545; color:white; padding:3px 8px; border-radius:12px;">SKB</span> - SKB HQ</div>
+</div>
+</body>
+</html>
