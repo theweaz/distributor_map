@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Distributor Map • Clean + Arrival Fade</title>
+<link href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" rel="stylesheet"/>
+<style>
+    :root {
+      --bg: #ffffff;
+      --fg: #0c1222;
+      --muted: #6b7280;
+      --panel: #ffffff;
+      --border: #e5e7eb;
+      --shadow: rgba(0,0,0,0.08);
+      --chip: #f3f4f6;
+      --brand: #1a73e8;
+    }
+    body.dark {
+      --bg: #0b0b0f;
+      --fg: #e9edf1;
+      --muted: #9aa4b2;
+      --panel: #111623;
+      --border: #2a3345;
+      --shadow: rgba(0,0,0,0.55);
+      --chip: #1b2233;
+      --brand: #67b7ff;
+    }
+
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
+      background: var(--bg);
+      color: var(--fg);
+    }
+
+    #map { height: 100vh; width: 100%; }
+
+    /* Controls */
+    #map-controls {
+      position: fixed;
+      top: 16px;
+      left: 16px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      padding: 12px 14px;
+      border-radius: 12px;
+      font-size: 14px;
+      box-shadow: 0 8px 24px var(--shadow);
+      z-index: 1001;
+      display: grid;
+      gap: 8px;
+      min-width: 230px;
+    }
+    #map-controls .row { display:flex; align-items:center; gap:8px; }
+    #map-controls .hr { border-top:1px solid var(--border); margin:6px 0; }
+    #map-controls .label { font-weight: 700; margin-bottom: 2px; }
+
+    /* Legend */
+    #tier-legend {
+      position: fixed;
+      bottom: 16px;
+      left: 16px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      padding: 12px;
+      border-radius: 12px;
+      font-size: 14px;
+      box-shadow: 0 8px 24px var(--shadow);
+      z-index: 999;
+      line-height: 1.5;
+    }
+    #tier-legend strong { display:block; margin-bottom: 6px; }
+    #tier-legend .badge {
+      color: #fff;
+      padding: 3px 8px;
+      border-radius: 999px;
+      margin-right: 8px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing:.2px;
+      display:inline-block;
+      min-width:72px;
+      text-align:center;
+    }
+
+    /* Side Panel */
+    #side-panel {
+      width: 360px;
+      max-width: calc(100vw - 40px);
+      background: var(--panel);
+      border-left: 1px solid var(--border);
+      box-shadow: -8px 0 24px var(--shadow);
+      position: fixed;
+      right: 0;
+      top: 0;
+      height: 100%;
+      z-index: 1000;
+      padding: 20px 22px 24px;
+      overflow-y: auto;
+      display: none;
+    }
+    #close-panel {
+      position: sticky;
+      top: 0;
+      float: right;
+      font-size: 22px;
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+    }
+    .dist-name {
+      color: var(--brand);
+      font-size: 22px;
+      margin: 8px 0 4px;
+      line-height:1.2;
+    }
+    .location {
+      margin-top: 0;
+      color: var(--muted);
+    }
+    .capability-tags { list-style:none; padding:0; margin: 8px 0 0; }
+    .capability-tags li {
+      background-color: var(--chip);
+      display: inline-block;
+      margin: 4px 6px 4px 0;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+    }
+    .workability-tag {
+      display: inline-block;
+      padding: 6px 10px;
+      border-radius: 8px;
+      margin-top: 12px;
+      font-weight: 700;
+      font-size: 12px;
+      background: #fef3c7;
+      color: #92400e;
+    }
+    .workability-tag.mid-tier { background-color: #fb923c; color: white; }
+
+    /* No shadows */
+    .leaflet-marker-icon { filter: none !important; }
+
+    /* CLEAN HOVER: simple transition, no keyframes */
+    .leaflet-marker-icon {
+      transition: transform 140ms cubic-bezier(.2,.8,.2,1);
+      will-change: transform;
+    }
+    .leaflet-zoom-anim .leaflet-marker-icon { transition: none !important; }
+    body:not(.map-busy) .leaflet-marker-icon:hover { transform: translateY(-4px) scale(1.03); }
+
+    /* Arrival effect: opacity only (no transform) */
+    .leaflet-marker-icon.arrive { opacity: 0; }
+    .leaflet-marker-icon.arrive.arrived { opacity: 1; transition: opacity 360ms ease-out; }
+
+    /* Reduced motion */
+    @media (prefers-reduced-motion: reduce) {
+      .leaflet-marker-icon { transition: none !important; }
+      body:not(.map-busy) .leaflet-marker-icon:hover { transform: none !important; }
+      .leaflet-marker-icon.arrive.arrived { transition: none !important; }
+    }
+
+    @media (max-width: 640px) {
+      #map-controls { min-width: unset; width: calc(100vw - 32px); }
+      #tier-legend { display:none; }
+    }
+  
+#tier-legend .badge {
+  box-shadow: 0 1px 4px rgba(0,0,0,0.25);
+  text-transform: uppercase;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+
+body:not(.map-busy) .leaflet-marker-icon:hover {
+  transform: translateY(-4px) scale(1.05);
+  filter: drop-shadow(0 0 6px rgba(255,255,255,0.9));
+}
+
+.leaflet-marker-icon.arrive.arrived {
+  transition: opacity 360ms ease-out, transform 360ms ease-out;
+  transform: scale(1.0);
+}
+.leaflet-marker-icon.arrive {
+  transform: scale(0.85);
+}
+
+/* Custom cluster styling */
+.marker-cluster-small, .marker-cluster-medium, .marker-cluster-large {
+  background: rgba(17, 22, 35, 0.85);
+  color: #fff;
+  border-radius: 999px;
+  border: 2px solid rgba(255,255,255,0.8);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+}
+.marker-cluster div {
+  background: transparent;
+  border: none;
+}
+.marker-cluster span {
+  font-weight: 700;
+}
+</style>
+<link href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" rel="stylesheet"/><link href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" rel="stylesheet"/></head>
+<body>
+<div id="map-controls">
+<label class="row" style="cursor:pointer">
+<input id="darkToggle" type="checkbox"/>
+<span>Dark mode</span>
+</label>
+<div class="hr"></div>
+<div class="label">Filter by Tier</div>
+<label class="row"><input checked="" class="tierFilter" type="checkbox" value="DISTRIBUTOR"/> <span>Distributor (Blue)</span></label>
+<label class="row"><input checked="" class="tierFilter" type="checkbox" value="DR"/> <span>DR (Green)</span></label>
+<label class="row"><input checked="" class="tierFilter" type="checkbox" value="BASE"/> <span>Base (Orange)</span></label>
+<label class="row"><input checked="" class="tierFilter" type="checkbox" value="OEM"/> <span>OEM (Grey)</span></label>
+<label class="row"><input checked="" class="tierFilter" type="checkbox" value="SKB"/> <span>SKB (Red)</span></label>
+</div>
+<div aria-label="Distributor locations map" id="map" role="region"></div>
+<aside aria-live="polite" id="side-panel">
+<button aria-label="Close panel" id="close-panel" onclick="document.getElementById('side-panel').style.display='none';" title="Close">×</button>
+<div id="panel-content"></div>
+</aside>
+<div id="tier-legend">
+<strong>Tier Key</strong>
+<div><span class="badge" style="background:#007bff;">Distributor</span> Standard Distribution Partner</div>
+<div><span class="badge" style="background:#28a745;">DR</span> Direct Reseller</div>
+<div><span class="badge" style="background:#f59e0b;">Base</span> Base Level Pricing</div>
+<div><span class="badge" style="background:#6b7280;">OEM</span> Original Equipment Manufacturer</div>
+<div><span class="badge" style="background:#dc3545;">SKB</span> SKB HQ</div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+    // Icons without shadows
+    const BASE_SIZE = [25, 41];
+    const BASE_ANCHOR = [12, 41];
+    function iconFor(color, size=BASE_SIZE, anchor=BASE_ANCHOR) {
+      return L.icon({
+        iconUrl: `https://cdn.jsdelivr.net/gh/pointhi/leaflet-color-markers@master/img/marker-icon-${color}.png`,
+        iconRetinaUrl: `https://cdn.jsdelivr.net/gh/pointhi/leaflet-color-markers@master/img/marker-icon-2x-${color}.png`,
+        iconSize: size, iconAnchor: anchor, popupAnchor: [1, -34], shadowUrl: ''
+      });
+    }
+    const ICONS = {
+      DISTRIBUTOR: iconFor('blue', [20, 32], [10, 32]),
+      DR:          iconFor('green', [30, 50], [15, 50]),
+      BASE:        iconFor('orange', [20, 32], [10, 32]),
+      OEM:         iconFor('grey', [20, 32], [10, 32]),
+      SKB:         iconFor('red', [55, 90], [27, 90])
+    };
+
+    function formatAddress(dist) {
+      const lines = [];
+      if (dist.Address) lines.push(dist.Address);
+      const csz = [dist.City, dist.State].filter(Boolean).join(', ');
+      const last = [csz, dist.Zip].filter(Boolean).join(' ');
+      if (last) lines.push(last);
+      return lines.join('<br>');
+    }
+
+    function showSidePanel(dist) {
+      const panel = document.getElementById('side-panel');
+      const content = document.getElementById('panel-content');
+      const caps = (dist.Capabilities || '').split(',').map(s => s.trim()).filter(Boolean)
+        .map(cap => `<li>${cap}</li>`).join('');
+      const tierClass = (dist.Notes || '').includes('Mid Tier') ? 'mid-tier' : '';
+      content.innerHTML = `
+        <h2 class="dist-name">${dist.Name || ''}</h2>
+        <p class="location">${formatAddress(dist)}</p>
+        <p><strong>Main Contact:</strong> ${dist['Main Contact'] || ''}</p>
+        <p><strong>Email:</strong> ${dist.Email ? `<a href="mailto:${dist.Email}">${dist.Email}</a>` : ''}</p>
+        <p><strong>Phone:</strong> ${dist.Phone || ''}</p>
+        <div class="capability-section">
+          <h3 style="margin-bottom:6px;">Capabilities</h3>
+          <ul class="capability-tags">${caps}</ul>
+        </div>
+        ${dist.Notes ? `<div class="workability-tag ${tierClass}">${dist.Notes}</div>` : ''}
+      `;
+      panel.style.display = 'block';
+    }
+    function hideSidePanel(){ document.getElementById('side-panel').style.display = 'none'; }
+
+    // Map
+    const map = L.map('map', { zoomControl: false }).setView([39.8283, -98.5795], 4);
+    L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+    const lightTiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap contributors' });
+    const darkTiles  = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 19, attribution: '© OpenStreetMap, © CARTO' });
+
+    // Dark default, but honor last choice
+    const stored = localStorage.getItem('map-dark');
+    const startDark = stored === null ? true : stored === '1';
+    function applyDarkMode(isDark) {
+      if (isDark) {
+        document.body.classList.add('dark');
+        if (map.hasLayer(lightTiles)) map.removeLayer(lightTiles);
+        darkTiles.addTo(map);
+        localStorage.setItem('map-dark','1');
+      } else {
+        document.body.classList.remove('dark');
+        if (map.hasLayer(darkTiles)) map.removeLayer(darkTiles);
+        lightTiles.addTo(map);
+        localStorage.setItem('map-dark','0');
+      }
+      map.invalidateSize(true);
+    }
+    applyDarkMode(startDark);
+    const darkToggle = document.getElementById('darkToggle');
+    darkToggle.checked = startDark;
+    darkToggle.addEventListener('change', e => applyDarkMode(e.target.checked));
+
+    // Tier groups
+    const tierGroups = { DISTRIBUTOR:L.layerGroup(), DR:L.layerGroup(), BASE:L.layerGroup(), OEM:L.layerGroup(), SKB:L.layerGroup() };
+    Object.values(tierGroups).forEach(g => g.addTo(map));
+
+    // Busy flag to pause hover during interactions
+    function setBusy(val){ document.body.classList.toggle('map-busy', !!val); }
+    map.on('zoomstart movestart', () => setBusy(true));
+    map.on('zoomend moveend',   () => setBusy(false));
+    map.on('click', hideSidePanel);
+
+    const allMarkers = [];
+    const SHEET_URL = 'https://opensheet.elk.sh/1wVrLOTzs88gLpbnFrY0SCwPdSArXYouV4HW85jRK5fg/Sheet1';
+
+    fetch(SHEET_URL)
+      .then(r => r.json())
+      .then(rows => {
+        rows.forEach((dist, idx) => {
+          const lat = parseFloat(dist.Latitude), lng = parseFloat(dist.Longitude);
+          if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+          const tier = (dist.Tier || '').trim().toUpperCase();
+          const icon = ICONS[tier] || ICONS.DISTRIBUTOR;
+
+          const marker = L.marker([lat, lng], { icon, riseOnHover: true })
+            .on('click', () => {
+              map.setView([lat, lng], Math.max(map.getZoom(), 10), { animate: true });
+              showSidePanel(dist);
+            })
+            .addTo(tierGroups[tier] || tierGroups.DISTRIBUTOR);
+
+          // One-time arrival fade: opacity only
+          marker.once('add', () => {
+            const el = marker.getElement && marker.getElement();
+            if (!el) return;
+            el.classList.add('arrive');
+            // next frame -> add 'arrived' to trigger opacity transition
+            requestAnimationFrame(() => el.classList.add('arrived'));
+          });
+
+          allMarkers.push(marker);
+        });
+
+        if (allMarkers.length) {
+          const fg = L.featureGroup(allMarkers);
+          map.fitBounds(fg.getBounds(), { padding: [50, 50] });
+        }
+
+        function updateFilters() {
+          const checks = Array.from(document.querySelectorAll('.tierFilter'));
+          const enabled = new Set(checks.filter(c => c.checked).map(c => c.value));
+          Object.entries(tierGroups).forEach(([name, group]) => {
+            if (enabled.has(name)) { if (!map.hasLayer(group)) group.addTo(map); }
+            else { if (map.hasLayer(group)) map.removeLayer(group); }
+          });
+          const visible = [];
+          Object.values(tierGroups).forEach(g => { if (map.hasLayer(g)) visible.push(...g.getLayers()); });
+          if (visible.length) {
+            const vfg = L.featureGroup(visible);
+            map.fitBounds(vfg.getBounds(), { padding: [50, 50] });
+          }
+        }
+        document.querySelectorAll('.tierFilter').forEach(cb => cb.addEventListener('change', updateFilters));
+      })
+      .catch(err => console.error('Data load error:', err));
+  </script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script></body>
+</html>
